@@ -7,8 +7,8 @@ import importlib
 from typing import List, Dict, Any
 import tiktoken
 from pandas import DataFrame
-from langchain.chat_models import ChatOpenAI
-from langchain.callbacks import get_openai_callback
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.callbacks import get_openai_callback
 from langchain.llms.base import BaseLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema import (
@@ -40,7 +40,7 @@ from tools.googleDistanceMatrix.apis import *
 from tools.restaurants.apis import *
 import time
 
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 # GOOGLE_API_KEY = os.environ['GOOGLE_API_KEY']
 
 actionMapping = {"FlightSearch":"flights","AttractionSearch":"attractions","GoogleDistanceMatrix":"googleDistanceMatrix","accommodationSearch":"accommodation","RestaurantSearch":"restaurants","CitySearch":"cities"}
@@ -242,6 +242,7 @@ def pipeline(query, mode, model, index, model_version = None):
         if model == 'gpt': query_json = json.loads(GPT_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n', model_version).replace('```json', '').replace('```', ''))
         elif model == 'claude': query_json = json.loads(Claude_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n').replace('```json', '').replace('```', ''))
         elif model == 'mixtral': query_json = json.loads(Mixtral_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n', 'json').replace('```json', '').replace('```', '')) 
+        elif model == 'ollama': query_json = json.loads(Ollama_response(query_to_json_prompt + '{' + query + '}\n' + 'JSON:\n', mode='json').replace('```json', '').replace('```', ''))
         else: ...
         
         with open(path+'plans/' + 'query.txt', 'w') as f:
@@ -355,12 +356,12 @@ if __name__ == '__main__':
 
     if args.set_type == 'validation':
         print('validation')
-        query_data_list  = load_dataset('TravelPlanner','validation')['validation']
+        query_data_list = load_dataset("osunlp/TravelPlanner", "validation")['validation']
     elif args.set_type == 'test':
         print('test')
-        query_data_list  = load_dataset('TravelPlanner','test')['test']
+        query_data_list = load_dataset("osunlp/TravelPlanner", "test")['test']
     else:
-        query_data_list  = load_dataset('TravelPlanner','train')['train']
+        query_data_list = load_dataset("osunlp/TravelPlanner", "train")['train']
 
     numbers = [i for i in range(1,len(query_data_list)+1)]
     with get_openai_callback() as cb:

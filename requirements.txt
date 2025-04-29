@@ -10,3 +10,4 @@ z3-solver
 anthropic
 mistralai
 pandas
+ollama

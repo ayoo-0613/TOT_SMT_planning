@@ -5,7 +5,7 @@ from tools.googleDistanceMatrix.apis import *
 from tools.flights.apis import *
 
 class Cities:
-    def __init__(self ,path="database/background/citySet_with_states.txt") -> None:
+    def __init__(self ,path="database_small/background/citySet_with_states.txt") -> None:
         self.path = path
         self.load_data()
         print("Cities loaded.")

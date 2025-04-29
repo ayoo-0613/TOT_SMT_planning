@@ -7,8 +7,8 @@ import importlib
 from typing import List, Dict, Any
 import tiktoken
 from pandas import DataFrame
-from langchain.chat_models import ChatOpenAI
-from langchain.callbacks import get_openai_callback
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.callbacks import get_openai_callback
 from langchain.llms.base import BaseLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema import (
@@ -37,7 +37,7 @@ from tools_small.attractions.apis import *
 import time
 import pandas
 
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 # GOOGLE_API_KEY = os.environ['GOOGLE_API_KEY']
 
 actionMapping = {"FlightSearch":"flights","AttractionSearch":"attractions","GoogleDistanceMatrix":"googleDistanceMatrix","accommodationSearch":"accommodation","RestaurantSearch":"restaurants","CitySearch":"cities"}
@@ -336,10 +336,17 @@ def interact_json(query, unsat_cores, code_list, s, suggestions, preference = No
 def pipeline(query, mode, user_mode, index):
     path_read =  f'output/{mode}/initial_codes/{index}/'
     path =  f'output/{mode}/withexplain/{user_mode}/{index}/'
+    
+    # 确保目录存在
+    if not os.path.exists(path_read):
+        os.makedirs(path_read)
+        os.makedirs(path_read+'codes/')
+        os.makedirs(path_read+'plans/')
     if not os.path.exists(path):
         os.makedirs(path)
         os.makedirs(path+'codes/')
         os.makedirs(path+'plans/')
+        
     # setup
     with open('prompts/small/fix/query_to_json.txt', 'r') as file:
         query_to_json_prompt = file.read()
@@ -455,82 +462,7 @@ def json_2_codes(query):
 
     print('-----------------query in json format-----------------\n',query_json)
 
-    steps = GPT_response(constraint_to_step_prompt + str(query_json) + '\n' + 'Steps:\n', gpt_model_35)
-
-    steps = steps.split('\n\n')
-    codes = 'unsat_cores = []\n'
-    for step in steps:
-        print('!!!!!!!!!!STEP!!!!!!!!!!\n', step, '\n')
-        lines = step.split('# \n')[1]
-        prompt = ''
-        step_key = ''
-        for key in step_to_code_prompts.keys():
-            if key in step.split('# \n')[0]:
-                print('!!!!!!!!!!KEY!!!!!!!!!!\n', key, '\n')
-                prompt = step_to_code_prompts[key]
-                step_key = key
-        code = GPT_response(prompt + lines, gpt_model)
-        code = code.replace('```python', '')
-        code = code.replace('```', '')
-        if step_key != 'Destination cities': 
-            if query_json['days'] == 3:
-                code = code.replace('\n', '\n    ')
-            elif query_json['days'] == 5:
-                code = code.replace('\n', '\n            ')
-            else:
-                code = code.replace('\n', '\n                ')
-        print('!!!!!!!!!!CODE!!!!!!!!!!\n', code, '\n')
-        codes += code + '\n'
-    with open('prompts/small/fix/solve_{}.txt'.format(query_json['days']), 'r') as f:
-        codes += f.read()
-    return codes
-
-def collect_inital_codes(query, mode, index, model_version = None):
-    path =  f'output/{mode}/initial_codes/{index}/'
-    if not os.path.exists(path):
-        os.makedirs(path)
-        os.makedirs(path+'codes/')
-        os.makedirs(path+'plans/')
-    # setup
-    with open('prompts/small/fix/query_to_json.txt', 'r') as file:
-        query_to_json_prompt = file.read()
-    with open('prompts/small/fix/constraint_to_step.txt', 'r') as file:
-        constraint_to_step_prompt = file.read()
-    with open('prompts/small/fix/step_to_code_destination_cities.txt', 'r') as file:
-        step_to_code_destination_cities_prompt = file.read()
-    with open('prompts/small/fix/step_to_code_departure_dates.txt', 'r') as file:
-        step_to_code_departure_dates_prompt = file.read()
-    with open('prompts/small/fix/step_to_code_flight.txt', 'r') as file:
-        step_to_code_flight_prompt = file.read()
-    with open('prompts/small/fix/step_to_code_attraction.txt', 'r') as file:
-        step_to_code_attraction_prompt = file.read()
-    with open('prompts/small/fix/step_to_code_budget.txt', 'r') as file:
-        step_to_code_budget_prompt = file.read()
-        
-    FlightSearch = Flights()
-    AttractionSearch = Attractions()
-    s = Optimize()
-    variables = {}
-
-    step_to_code_prompts = {'Destination cities': step_to_code_destination_cities_prompt, 
-                            'Departure dates': step_to_code_departure_dates_prompt,
-                            'Flight information': step_to_code_flight_prompt,
-                            'Attraction information': step_to_code_attraction_prompt,
-                            'Budget': step_to_code_budget_prompt
-                            }
-    plan = ''
-    plan_json = ''
-    success = False
-    
-    query_json = query
-
-    with open(path+'plans/' + 'query.json', 'w') as f:
-      json.dump(query_json, f)
-    f.close()
-
-    print('-----------------query in json format-----------------\n',query_json)
-
-    steps = GPT_response(constraint_to_step_prompt + str(query_json) + '\n' + 'Steps:\n', model_version)
+    steps = get_model_response(constraint_to_step_prompt + str(query_json) + '\n' + 'Steps:\n', gpt_model, mode='normal')
 
     with open(path+'plans/' + 'steps.txt', 'w') as f:
       f.write(steps)
@@ -549,7 +481,7 @@ def collect_inital_codes(query, mode, index, model_version = None):
                     print('!!!!!!!!!!KEY!!!!!!!!!!\n', key, '\n')
                     prompt = step_to_code_prompts[key]
                     step_key = key
-            code = GPT_response(prompt + lines, model_version)
+            code = get_model_response(prompt + lines, gpt_model, mode='code')
             code = code.replace('```python', '')
             code = code.replace('```', '')
             if step_key != 'Destination cities': 
@@ -601,8 +533,114 @@ def run_code(mode, user_mode, index):
     local_vars = locals()
     exec(codes, globals(), local_vars)
 
-if __name__ == '__main__':
+def get_model_response(messages, model_version, mode='normal'):
+    """根据模型类型选择不同的响应函数"""
+    if model_version == 'ollama':
+        return Ollama_response(messages, mode=mode)
+    else:
+        return GPT_response(messages, model_version)
 
+def collect_inital_codes(query, mode, index, model_version = None):
+    path =  f'output/{mode}/initial_codes/{index}/'
+    if not os.path.exists(path):
+        os.makedirs(path)
+        os.makedirs(path+'codes/')
+        os.makedirs(path+'plans/')
+    # setup
+    with open('prompts/small/fix/query_to_json.txt', 'r') as file:
+        query_to_json_prompt = file.read()
+    with open('prompts/small/fix/constraint_to_step.txt', 'r') as file:
+        constraint_to_step_prompt = file.read()
+    with open('prompts/small/fix/step_to_code_destination_cities.txt', 'r') as file:
+        step_to_code_destination_cities_prompt = file.read()
+    with open('prompts/small/fix/step_to_code_departure_dates.txt', 'r') as file:
+        step_to_code_departure_dates_prompt = file.read()
+    with open('prompts/small/fix/step_to_code_flight.txt', 'r') as file:
+        step_to_code_flight_prompt = file.read()
+    with open('prompts/small/fix/step_to_code_attraction.txt', 'r') as file:
+        step_to_code_attraction_prompt = file.read()
+    with open('prompts/small/fix/step_to_code_budget.txt', 'r') as file:
+        step_to_code_budget_prompt = file.read()
+        
+    FlightSearch = Flights()
+    AttractionSearch = Attractions()
+    s = Optimize()
+    variables = {}
+
+    step_to_code_prompts = {'Destination cities': step_to_code_destination_cities_prompt, 
+                            'Departure dates': step_to_code_departure_dates_prompt,
+                            'Flight information': step_to_code_flight_prompt,
+                            'Attraction information': step_to_code_attraction_prompt,
+                            'Budget': step_to_code_budget_prompt
+                            }
+    plan = ''
+    plan_json = ''
+    success = False
+    
+    query_json = query
+
+    with open(path+'plans/' + 'query.json', 'w') as f:
+      json.dump(query_json, f)
+    f.close()
+
+    print('-----------------query in json format-----------------\n',query_json)
+
+    steps = get_model_response(constraint_to_step_prompt + str(query_json) + '\n' + 'Steps:\n', model_version, mode='normal')
+
+    with open(path+'plans/' + 'steps.txt', 'w') as f:
+      f.write(steps)
+    f.close()
+
+    steps = steps.split('\n\n')
+    try:
+        codes = 'unsat_cores = []\n'
+        for step in steps:
+            print('!!!!!!!!!!STEP!!!!!!!!!!\n', step, '\n')
+            lines = step.split('# \n')[1]
+            prompt = ''
+            step_key = ''
+            for key in step_to_code_prompts.keys():
+                if key in step.split('# \n')[0]:
+                    print('!!!!!!!!!!KEY!!!!!!!!!!\n', key, '\n')
+                    prompt = step_to_code_prompts[key]
+                    step_key = key
+            code = get_model_response(prompt + lines, model_version, mode='code')
+            code = code.replace('```python', '')
+            code = code.replace('```', '')
+            if step_key != 'Destination cities': 
+                if query_json['days'] == 3:
+                    code = code.replace('\n', '\n    ')
+                elif query_json['days'] == 5:
+                    code = code.replace('\n', '\n            ')
+                else:
+                    code = code.replace('\n', '\n                ')
+            print('!!!!!!!!!!CODE!!!!!!!!!!\n', code, '\n')
+            codes += code + '\n'
+            # 确保文件路径存在
+            file_path = path+'codes/' + f'{step_key}.txt'
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, 'w') as f:
+                f.write(code)
+            f.close()
+        with open('prompts/small/fix/solve_{}.txt'.format(query_json['days']), 'r') as f:
+            codes += f.read()
+        f.close()
+        local_vars = locals()
+        exec(codes, globals(), local_vars)
+        # 确保codes.txt文件被正确保存
+        with open(path+'codes/' + 'codes.txt', 'w') as f:
+            f.write(codes)
+        f.close()
+    except Exception as e:
+        print(f"Error in collect_inital_codes: {str(e)}")
+        with open(path+'codes/' + 'codes.txt', 'w') as f:
+            f.write(codes)
+        f.close()
+        with open(path+'plans/' + 'error.txt', 'w') as f:
+            f.write(str(e))
+        f.close()
+
+if __name__ == '__main__':
     tools_list = ["flights","attractions","accommodations","restaurants","googleDistanceMatrix","cities"]
     csvFile = pandas.read_csv('database_small/queries/query.csv')
     for mode in ['attraction', 'destination']: # more modes
@@ -618,8 +656,34 @@ if __name__ == '__main__':
                     "budget": csvFile.iloc[i]["budget"]}
             print("##########################Starting query ", i+1)
             plan_json = json.loads(str(plan_json).replace("\'", "\"").replace("None", "null"))
-            # run this to collect initial codes 
-            collect_inital_codes(plan_json, 'interactive', i+1, 'gpt-4o')
-            # run this to interacively plan repair
-            result_plan = pipeline(plan_json, 'interactive', mode, i+1) # budget, non-stop, airline, attraction, destination
-            print("##########################Ending query ", i+1)
+            
+            # 先执行collect_inital_codes并等待完成
+            try:
+                collect_inital_codes(plan_json, 'interactive', i+1, 'ollama')
+                print("Initial codes collected successfully")
+            except Exception as e:
+                print(f"Error in collect_inital_codes: {str(e)}")
+                continue
+                
+            # 检查文件是否已生成
+            path_read = f'output/interactive/initial_codes/{i+1}/codes/'
+            required_files = ['Destination cities.txt', 'Departure dates.txt', 'Flight information.txt', 
+                            'Attraction information.txt', 'Budget.txt', 'codes.txt']
+            
+            all_files_exist = True
+            for file in required_files:
+                if not os.path.exists(path_read + file):
+                    print(f"Missing file: {file}")
+                    all_files_exist = False
+            
+            if not all_files_exist:
+                print("Skipping pipeline due to missing files")
+                continue
+                
+            # 只有在所有文件都存在的情况下才执行pipeline
+            try:
+                result_plan = pipeline(plan_json, 'interactive', mode, i+1)
+                print("##########################Ending query ", i+1)
+            except Exception as e:
+                print(f"Error in pipeline: {str(e)}")
+                continue

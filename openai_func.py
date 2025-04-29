@@ -72,3 +72,25 @@ def Mixtral_response(messages, mode = 'normal'):
   # import pdb; pdb.set_trace()
   return chat_response.choices[0].message.content
 
+def Ollama_response(messages, model_name="deepseek-r1:14b", mode='normal'):
+    import ollama
+    
+    if mode == 'json':
+        system_prompt = "You are a helpful code assistant. Your task is to generate a valid JSON object based on the given information. Please only produce the JSON output and avoid explaining."
+    elif mode == 'code':
+        system_prompt = "You are a helpful code assistant that help with writing Python code for a user requests. Please only produce the function and avoid explaining. Do not add \ in front of _"
+    else:
+        system_prompt = "You are a helpful assistant."
+    
+    response = ollama.chat(model=model_name, messages=[
+        {
+            'role': 'system',
+            'content': system_prompt
+        },
+        {
+            'role': 'user',
+            'content': messages
+        }
+    ])
+    return response['message']['content']
+
